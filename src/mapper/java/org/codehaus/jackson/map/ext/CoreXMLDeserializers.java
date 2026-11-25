@@ -11,6 +11,7 @@ import javax.xml.namespace.QName;
 
 import org.codehaus.jackson.JsonParser;
 import org.codehaus.jackson.JsonProcessingException;
+import org.codehaus.jackson.JsonToken;
 import org.codehaus.jackson.map.DeserializationContext;
 import org.codehaus.jackson.map.deser.StdDeserializer;
 import org.codehaus.jackson.map.deser.FromStringDeserializer;
@@ -40,7 +41,19 @@ public class CoreXMLDeserializers
             throw new RuntimeException(e);
         }
     }
-    
+
+    /**
+     * Maximum length of a textual {@link Duration} or {@link XMLGregorianCalendar}
+     * value accepted for deserialization: {@link DatatypeFactory} parses numeric
+     * components with the O(n^2) {@code BigInteger(String)}/{@code BigDecimal(String)}
+     * constructors, so overly long values must be rejected before parsing.
+     *<p>
+     * [databind#6127]: Length of the whole value is checked as a conservative
+     * upper bound: it is never shorter than any single numeric component, and no
+     * valid value comes anywhere near this limit.
+     */
+    protected final static int MAX_VALUE_LENGTH = 2000;
+
     /*
     /**********************************************************
     /* Provider implementation
@@ -75,6 +88,11 @@ public class CoreXMLDeserializers
         protected Duration _deserialize(String value, DeserializationContext ctxt)
             throws IllegalArgumentException
         {
+            // [databind#6127] Must check length before DatatypeFactory.newDuration()
+            // gets to parse date/time components into BigInteger/BigDecimal
+            if (value.length() > MAX_VALUE_LENGTH) {
+                throw new IllegalArgumentException(_lengthExceededMessage(value));
+            }
             return _dataTypeFactory.newDuration(value);
         }
     }
@@ -88,6 +106,14 @@ public class CoreXMLDeserializers
         public XMLGregorianCalendar deserialize(JsonParser jp, DeserializationContext ctxt)
             throws IOException, JsonProcessingException
         {
+            // [databind#6127] Similar to DurationDeserializer: reject overly long
+            // textual values before any parsing is attempted
+            if (jp.getCurrentToken() == JsonToken.VALUE_STRING) {
+                String text = jp.getText().trim();
+                if (text.length() > MAX_VALUE_LENGTH) {
+                    throw ctxt.weirdStringException(_valueClass, _lengthExceededMessage(text));
+                }
+            }
             Date d = _parseDate(jp, ctxt);
             if (d == null) {
                 return null;
@@ -109,5 +135,18 @@ public class CoreXMLDeserializers
         {
             return QName.valueOf(value);
         }
+    }
+
+    /*
+    /**********************************************************
+    /* Helper methods
+    /**********************************************************
+     */
+
+    // [databind#6127]
+    protected static String _lengthExceededMessage(String value)
+    {
+        return String.format("value length (%d) exceeds the maximum allowed (%d)",
+                value.length(), MAX_VALUE_LENGTH);
     }
 }
