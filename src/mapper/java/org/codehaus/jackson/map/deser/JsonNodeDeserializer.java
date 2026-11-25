@@ -118,6 +118,14 @@ public class JsonNodeDeserializer
 abstract class BaseNodeDeserializer<N extends JsonNode>
     extends StdDeserializer<N>
 {
+    /**
+     * Maximum number of nested JSON Arrays and Objects that will be bound
+     * into a tree; anything deeper is rejected with a
+     * {@link JsonParseException} instead of exhausting the stack
+     * (CVE-2026-95155).
+     */
+    private final static int MAX_DEPTH = 1000;
+
     public BaseNodeDeserializer(Class<N> nodeClass)
     {
         super(nodeClass);
@@ -176,6 +184,40 @@ abstract class BaseNodeDeserializer<N extends JsonNode>
     protected final ObjectNode deserializeObject(JsonParser jp, DeserializationContext ctxt)
         throws IOException, JsonProcessingException
     {
+        return deserializeObject(jp, ctxt, 0);
+    }
+
+    protected final ArrayNode deserializeArray(JsonParser jp, DeserializationContext ctxt)
+        throws IOException, JsonProcessingException
+    {
+        return deserializeArray(jp, ctxt, 0);
+    }
+
+    protected final JsonNode deserializeAny(JsonParser jp, DeserializationContext ctxt)
+        throws IOException, JsonProcessingException
+    {
+        return deserializeAny(jp, ctxt, 0);
+    }
+
+    /**
+     * Verifies that a JSON Array or Object enclosed in given number of
+     * other Arrays/Objects is within the nesting limit (CVE-2026-95155).
+     */
+    private void _checkDepth(JsonParser jp, int depth)
+        throws JsonParseException
+    {
+        if (depth >= MAX_DEPTH) {
+            throw new JsonParseException("JSON is too deeply nested.", jp.getCurrentLocation());
+        }
+    }
+
+    /**
+     * @param depth Number of JSON Arrays and Objects enclosing the Object
+     */
+    private ObjectNode deserializeObject(JsonParser jp, DeserializationContext ctxt, int depth)
+        throws IOException, JsonProcessingException
+    {
+        _checkDepth(jp, depth);
         ObjectNode node = ctxt.getNodeFactory().objectNode();
         JsonToken t = jp.getCurrentToken();
         if (t == JsonToken.START_OBJECT) {
@@ -184,7 +226,7 @@ abstract class BaseNodeDeserializer<N extends JsonNode>
         for (; t == JsonToken.FIELD_NAME; t = jp.nextToken()) {
             String fieldName = jp.getCurrentName();
             jp.nextToken();
-            JsonNode value = deserializeAny(jp, ctxt);
+            JsonNode value = deserializeAny(jp, ctxt, depth+1);
             JsonNode old = node.put(fieldName, value);
             if (old != null) {
                 _handleDuplicateField(fieldName, node, old, value);
@@ -192,28 +234,35 @@ abstract class BaseNodeDeserializer<N extends JsonNode>
         }
         return node;
     }
-    
-    protected final ArrayNode deserializeArray(JsonParser jp, DeserializationContext ctxt)
+
+    /**
+     * @param depth Number of JSON Arrays and Objects enclosing the Array
+     */
+    private ArrayNode deserializeArray(JsonParser jp, DeserializationContext ctxt, int depth)
         throws IOException, JsonProcessingException
     {
+        _checkDepth(jp, depth);
         ArrayNode node = ctxt.getNodeFactory().arrayNode();
         while (jp.nextToken() != JsonToken.END_ARRAY) {
-            node.add(deserializeAny(jp, ctxt));
+            node.add(deserializeAny(jp, ctxt, depth+1));
         }
         return node;
     }
 
-    protected final JsonNode deserializeAny(JsonParser jp, DeserializationContext ctxt)
+    /**
+     * @param depth Number of JSON Arrays and Objects enclosing the value
+     */
+    private JsonNode deserializeAny(JsonParser jp, DeserializationContext ctxt, int depth)
         throws IOException, JsonProcessingException
     {
         final JsonNodeFactory nodeFactory = ctxt.getNodeFactory();
         switch (jp.getCurrentToken()) {
         case START_OBJECT:
         case FIELD_NAME:
-            return deserializeObject(jp, ctxt);
+            return deserializeObject(jp, ctxt, depth);
 
         case START_ARRAY:
-            return deserializeArray(jp, ctxt);
+            return deserializeArray(jp, ctxt, depth);
 
         case VALUE_STRING:
             return nodeFactory.textNode(jp.getText());

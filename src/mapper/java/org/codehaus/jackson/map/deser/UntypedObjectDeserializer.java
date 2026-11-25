@@ -3,6 +3,7 @@ package org.codehaus.jackson.map.deser;
 import java.io.IOException;
 import java.util.*;
 
+import org.codehaus.jackson.JsonParseException;
 import org.codehaus.jackson.JsonProcessingException;
 import org.codehaus.jackson.JsonParser;
 import org.codehaus.jackson.JsonToken;
@@ -21,6 +22,24 @@ import org.codehaus.jackson.map.util.ObjectBuffer;
 public class UntypedObjectDeserializer
     extends StdDeserializer<Object>
 {
+    /**
+     * Maximum number of nested JSON Arrays and Objects that will be mapped
+     * into "natural" Java values; anything deeper is rejected with a
+     * {@link JsonParseException} instead of exhausting the stack
+     * (CVE-2026-95155).
+     */
+    private final static int MAX_DEPTH = 1000;
+
+    /**
+     * Number of JSON Arrays and Objects currently being mapped by the
+     * calling thread. Deserializer instances are shared between threads,
+     * so nesting depth can not be kept in an instance field; and since
+     * {@link #mapArray} and {@link #mapObject} are extension points,
+     * their signatures can not carry it either.
+     * The entry is removed once the outermost container has been mapped.
+     */
+    private final static ThreadLocal<int[]> _depth = new ThreadLocal<int[]>();
+
     public UntypedObjectDeserializer() { super(Object.class); }
 
     /*
@@ -98,7 +117,14 @@ public class UntypedObjectDeserializer
             /* Output can be as JSON Object, Array or scalar: no way to know
              * a this point:
              */
-            return typeDeserializer.deserializeTypedFromAny(jp, ctxt);
+            // nested typed values recurse back here, not via mapObject/mapArray,
+            // so they need to count towards the nesting limit too (CVE-2026-95155)
+            _enterContainer(jp);
+            try {
+                return typeDeserializer.deserializeTypedFromAny(jp, ctxt);
+            } finally {
+                _exitContainer();
+            }
 
         /* Otherwise we probably got a "native" type (ones that map
          * naturally and thus do not need or use type ids)
@@ -142,6 +168,17 @@ public class UntypedObjectDeserializer
     protected List<Object> mapArray(JsonParser jp, DeserializationContext ctxt)
         throws IOException, JsonProcessingException
     {
+        _enterContainer(jp);
+        try {
+            return _mapArray(jp, ctxt);
+        } finally {
+            _exitContainer();
+        }
+    }
+
+    private List<Object> _mapArray(JsonParser jp, DeserializationContext ctxt)
+        throws IOException, JsonProcessingException
+    {
         // Minor optimization to handle small lists (default size for ArrayList is 10)
         if (jp.nextToken()  == JsonToken.END_ARRAY) {
             return new ArrayList<Object>(4);
@@ -166,6 +203,17 @@ public class UntypedObjectDeserializer
     }
 
     protected Map<String,Object> mapObject(JsonParser jp, DeserializationContext ctxt)
+        throws IOException, JsonProcessingException
+    {
+        _enterContainer(jp);
+        try {
+            return _mapObject(jp, ctxt);
+        } finally {
+            _exitContainer();
+        }
+    }
+
+    private Map<String,Object> _mapObject(JsonParser jp, DeserializationContext ctxt)
         throws IOException, JsonProcessingException
     {
         JsonToken t = jp.getCurrentToken();
@@ -204,5 +252,37 @@ public class UntypedObjectDeserializer
             result.put(fieldName, deserialize(jp, ctxt));
         } while (jp.nextToken() != JsonToken.END_OBJECT);
         return result;
+    }
+
+    /**
+     * Called when starting to map a JSON Array or Object: verifies the
+     * nesting limit and, if within it, counts one more open container
+     * for the calling thread. Must be paired with {@link #_exitContainer}
+     * (in a <code>finally</code> block) only if it returns normally.
+     */
+    private static void _enterContainer(JsonParser jp)
+        throws JsonParseException
+    {
+        int[] depth = _depth.get();
+        if (depth == null) {
+            depth = new int[1];
+            _depth.set(depth);
+        } else if (depth[0] >= MAX_DEPTH) {
+            throw new JsonParseException("JSON is too deeply nested.", jp.getCurrentLocation());
+        }
+        ++depth[0];
+    }
+
+    /**
+     * Called once a JSON Array or Object started with {@link #_enterContainer}
+     * is done (normally or not); clears per-thread state when the outermost
+     * one completes.
+     */
+    private static void _exitContainer()
+    {
+        int[] depth = _depth.get();
+        if (depth != null && --depth[0] <= 0) {
+            _depth.remove();
+        }
     }
 }
