@@ -100,7 +100,7 @@ test.run.interop, test.run.jaxrs, test.run.failing, test.run.versions"
     />
     <target name="test.run.main" depends="test.compile">
        <!-- showoutput 'yes' to allow outputting debug msgs... -->
-        <junit fork="no" printsummary="yes" haltonfailure="no" showoutput="yes">
+        <junit fork="no" printsummary="yes" haltonfailure="yes" showoutput="yes">
             <batchtest fork="no" todir="${dir.test.xmlresults}">
                 <fileset dir="${dir.test.classes}">
                     <!-- Need to exclude inner classes... -->
@@ -115,6 +115,7 @@ test.run.interop, test.run.jaxrs, test.run.failing, test.run.versions"
                 </fileset>
             </batchtest>
             <formatter type="xml" />
+            <formatter type="brief" usefile="false" />
             <classpath>
                 <pathelement path="${dir.build.classes.core}" />
                 <pathelement path="${dir.build.classes.mapper}" />
@@ -129,7 +130,7 @@ test.run.interop, test.run.jaxrs, test.run.failing, test.run.versions"
 
     <target name="test.run.interop" depends="test.compile">
         <!-- for interop tests, yes, we need to fork (classloading issues) -->
-        <junit fork="yes" printsummary="yes" haltonfailure="no" showoutput="yes">
+        <junit fork="yes" printsummary="yes" haltonfailure="yes" showoutput="yes">
             <batchtest fork="no" todir="${dir.test.xmlresults}">
                 <fileset dir="${dir.test.classes}">
                     <exclude name="**/*$*.class"/>
@@ -139,9 +140,11 @@ test.run.interop, test.run.jaxrs, test.run.failing, test.run.versions"
                       -->
                     <exclude name="org/codehaus/jackson/map/interop/TestHibernate.class"/>
                     <include name="org/codehaus/jackson/map/interop/Test*.class"/>
+                    <include name="org/codehaus/jackson/map/ext/Test*.class"/>
                 </fileset>
             </batchtest>
             <formatter type="xml" />
+            <formatter type="brief" usefile="false" />
             <classpath>
                 <pathelement path="${dir.build.classes.core}" />
                 <pathelement path="${dir.build.classes.mapper}" />
@@ -154,7 +157,7 @@ test.run.interop, test.run.jaxrs, test.run.failing, test.run.versions"
 
     <target name="test.run.jaxrs" depends="test.compile">
         <!-- And finally, minimal testing for jax-rs too -->
-        <junit fork="yes" printsummary="yes" haltonfailure="no" showoutput="yes">
+        <junit fork="yes" printsummary="yes" haltonfailure="yes" showoutput="yes">
             <batchtest fork="no" todir="${dir.test.xmlresults}">
                 <fileset dir="${dir.test.classes}">
                     <exclude name="**/*$*.class"/>
@@ -162,6 +165,7 @@ test.run.interop, test.run.jaxrs, test.run.failing, test.run.versions"
                 </fileset>
             </batchtest>
             <formatter type="xml" />
+            <formatter type="brief" usefile="false" />
             <classpath>
                 <pathelement path="${dir.build.classes.core}" />
                 <pathelement path="${dir.build.classes.mapper}" />
@@ -207,7 +211,7 @@ test.run.interop, test.run.jaxrs, test.run.failing, test.run.versions"
     </target>
 
     <target name="test.run.versions" depends="test.compile">
-        <junit fork="yes" printsummary="yes" haltonfailure="no" showoutput="yes">
+        <junit fork="yes" printsummary="yes" haltonfailure="yes" showoutput="yes">
             <sysproperty key="FROM_ANT" value="true"/>
             <batchtest fork="no" todir="${dir.test.xmlresults}">
                 <fileset dir="${dir.test.classes}">
@@ -215,6 +219,7 @@ test.run.interop, test.run.jaxrs, test.run.failing, test.run.versions"
                 </fileset>
             </batchtest>
             <formatter type="xml" />
+            <formatter type="brief" usefile="false" />
             <classpath>
                 <pathelement path="${dir.build.classes.core}" />
                 <pathelement path="${dir.build.classes.mapper}" />
@@ -238,7 +243,7 @@ test.run.interop, test.run.jaxrs, test.run.failing, test.run.versions"
         <!-- 09-Apr-2010, tatu: Looks like we must fork, otherwise there may be
                issues with junit version?
           -->
-        <junit fork="yes" maxmemory="128M" showoutput="yes" printsummary="yes">
+        <junit fork="yes" maxmemory="128M" showoutput="yes" printsummary="yes" haltonfailure="yes">
         	<sysproperty key="FROM_ANT" value="true"/>
           <formatter type="plain" usefile="no" />
           <test name="${test}" />
